@@ -3,6 +3,8 @@ library(gamlss)
 library(gallimaufr)
 library(ridittools)
 library(glue)
+library(tictoc)
+library(furrr)
 
 rm(list = ls())
 
@@ -70,11 +72,11 @@ gc()
 # 2. Model Objects ----
 sexes <- list(all = c(0, 1), female = 0, male = 1)
 
-mod_forms <- list(basic = c(),
+gamlss_forms <- list(basic = c(),
                   sep = "father_class",
                   all = c("birth_weight", "father_class", "childhood_bmi"))
 
-mod_specs <- df_bmi %>%
+gamlss_specs <- df_bmi %>%
   distinct(cohort, age) %>%
   left_join(., ., by = "cohort") %>%
   rename(dep_age = age.x, last_age = age.y) %>%
@@ -87,7 +89,7 @@ mod_specs <- df_bmi %>%
               distinct(cohort, cog_var, cog_score),
             by = "cohort") %>%
   expand_grid(sex = c("all", "male", "female"),
-              mod = names(mod_forms)) %>%
+              mod = names(gamlss_forms)) %>%
   group_by(cohort) %>%
   filter(sex == "all" |
            last_age == min(last_age)) %>%
@@ -95,7 +97,7 @@ mod_specs <- df_bmi %>%
   mutate(spec_id = row_number(), .before = 1)
  
 get_spec <- function(spec_id){
-  mod_specs %>%
+  gamlss_specs %>%
     slice(!!spec_id)
 }
 
@@ -123,18 +125,20 @@ make_df <- function(spec_id){
 }
 
 save(df_bmi, df_cog, df_cov, df_panel,
-     mod_specs, sexes, mod_forms,
+     gamlss_specs, sexes, gamlss_forms,
      get_spec, make_df,
      file = "Data/gamlss_objects.Rdata")
 
 
 # 3. Run gamlss ----
+load("Data/gamlss_objects.Rdata")
+
 run_gamlss <- function(spec_id){
   spec <- get_spec(spec_id)
   
   df <- make_df(spec_id)
   
-  mod_form <- c("~ cog", mod_forms[[spec$mod]]) %>%
+  mod_form <- c("~ cog", gamlss_forms[[spec$mod]]) %>%
     glue_collapse(" + ")
   
   if (spec$sex == "all") mod_form <- glue("{mod_form} + male")
@@ -149,25 +153,35 @@ run_gamlss <- function(spec_id){
            family = BCCG, 
            data = data,
            trace = FALSE) %>%
-      coefAll()
+      coefAll() %>%
+      map_dfr(~ enframe(.x, name = "term", value = "beta"), .id = "param") %>%
+      pivot_wider(names_from = param, values_from = beta)
   }
   
   main <- run_mod(df)
   
-  boots <- map(1:10, 
+  boots <- map_dfr(1:200, 
               ~ df %>%
                 sample_frac(replace = TRUE) %>%
-                run_mod())
+                run_mod()) %>% 
+    chop(mu:nu) 
   
   tibble(res = list(main), boots = list(boots), n = nrow(df))
 }
 
-mod_specs %>%
+set.seed(1)
+tic()
+plan(multisession)
+gamlss_res <- gamlss_specs %>%
+  filter(str_detect(cog_var, "g_closer"), 
+         cog_score != "cog_ridit")  %>%
   dplyr::select(spec_id) %>%
   sample_frac() %>%
   mutate(res = future_map(spec_id, run_gamlss, .progress = TRUE))
+future:::ClusterRegistry("stop")
+toc()
 
-
+save(gamlss_res, file = "Data/gamlss_results.Rdata")
 
 # 4. Plot Results ----
 
