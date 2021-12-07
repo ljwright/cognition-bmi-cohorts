@@ -141,6 +141,20 @@ get_form <- function(spec_id){ # NEEDS TO CHANGE TO HAVE CORRECT COVARIATES - CA
        (-1 + age_ns0 + age_ns1 + age_ns2 | id)")
 }
 
+# get_form_gcm <- function(spec_id){
+#   spec <- slice(mod_specs, !!spec_id)
+#   
+#   ind_vars <- glue_collapse(mods[[spec$mod]], " + ")
+#   if (spec$sex == "all" & spec$mod == "basic") ind_vars <- "male"
+#   if (spec$sex == "all" & spec$mod != "basic") ind_vars <- glue("{ind_vars} + male")
+#   if (length(ind_vars) != 0) ind_vars <- glue("+ {ind_vars}")
+#   
+#   paste("bmi ~ -1 + age_ns0 + age_ns1 + age_ns2 +
+#        cog + cog*age_ns1 + cog*age_ns2 +
+#        (-1 + age_ns0 + age_ns1 + age_ns2 | id)",
+#         ind_vars)
+# }
+
 run_lmer <- function(spec_id){
   spec <- slice(mod_specs, !!spec_id)
   
